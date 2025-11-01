@@ -6,8 +6,8 @@ import os
 from datetime import datetime, timezone
 
 # === TELEGRAM ===
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8295198129:AAGwdBjPNTZbBoVoLYCP8pUxeX7ZrfT7j_8")
-CHAT_ID = os.getenv("CHAT_ID", "-1001660662034")
+BOT_TOKEN = "8295198129:AAGwdBjPNTZbBoVoLYCP8pUxeX7ZrfT7j_8"
+CHAT_ID = "-1001660662034"
 
 def send_telegram(msg):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
