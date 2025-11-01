@@ -3,13 +3,14 @@ import pandas as pd
 import time
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-# === TELEGRAM ===
+# === TELEGRAM SABİT ===
 BOT_TOKEN = "8295198129:AAGwdBjPNTZbBoVoLYCP8pUxeX7ZrfT7j_8"
 CHAT_ID = "-1001660662034"
 
 def send_telegram(msg):
+    """Telegram mesaj gönder"""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
@@ -78,56 +79,62 @@ def calc_a_c_signal(df):
 
     return cond_ac.fillna(False).astype(bool)
 
-# === Sinyal Algılama ===
-def detect_and_send(df, symbol_name, last_signals):
+# === Sinyal Algılama (En son tarihli sinyal) ===
+def detect_and_send_latest(df, symbol_name, last_signals):
     cond_ac = calc_a_c_signal(df)
     lows = df["l"].values
     closes = df["c"].values
     times = df["ts"]
 
-    for i in range(4, len(df)):
-        # Sinyal bitmişse
+    latest_signal = None
+    for i in range(len(df)-1, 4, -1):
         if cond_ac.iloc[i-1] and not cond_ac.iloc[i]:
-            zaman = str(times.iloc[i])
-            entry = round(closes[i], 2)
-            stop = round(min(lows[i-4:i]), 2)
+            latest_signal = {
+                "time": times.iloc[i],
+                "entry": round(closes[i], 2),
+                "stop": round(min(lows[i-4:i]), 2)
+            }
+            break
 
-            signal_key = f"{symbol_name}_{zaman}_{entry}_{stop}"
+    if not latest_signal:
+        print(f"{symbol_name}: Sinyal bulunamadı.")
+        return
 
-            # Aynı sinyal zaten gönderildiyse atla
-            if signal_key in last_signals:
-                print(f"{symbol_name}: {zaman} sinyali zaten gönderilmiş, atlanıyor.")
-                continue
+    # Türkiye saati
+    tr_time = latest_signal["time"].tz_convert("Europe/Istanbul").strftime("%Y-%m-%d %H:%M:%S")
 
-            msg = (
-                f"🟢 YESIL YAKTI SİNYALİ (a or c) BİTTİ\n"
-                f"Pair: {symbol_name} (6H)\n"
-                f"Zaman: {zaman}\n"
-                f"Entry (Close): {entry}\n"
-                f"Stop (4 Mum Low): {stop}"
-            )
-            send_telegram(msg)
+    signal_key = f"{symbol_name}_{tr_time}_{latest_signal['entry']}_{latest_signal['stop']}"
 
-            last_signals[signal_key] = str(datetime.now(timezone.utc))
-            save_last_signals(last_signals)
+    if signal_key in last_signals:
+        print(f"{symbol_name}: {tr_time} sinyali zaten gönderilmiş, atlanıyor.")
+        return
 
-            print(f"{symbol_name}: Yeni sinyal gönderildi ({zaman}).")
-            break  # Sadece en yeni sinyali gönder
+    msg = (
+        f"🟢 YESIL YAKTI SİNYALİ (a or c) BİTTİ\n"
+        f"Pair: {symbol_name} (6H)\n"
+        f"Zaman (TR): {tr_time}\n"
+        f"Entry (Close): {latest_signal['entry']}\n"
+        f"Stop (4 Mum Low): {latest_signal['stop']}"
+    )
+    send_telegram(msg)
 
-# === Döngü ===
+    last_signals[signal_key] = str(datetime.now(timezone.utc))
+    save_last_signals(last_signals)
+
+    print(f"{symbol_name}: ✅ En son sinyal gönderildi ({tr_time})")
+
+# === Ana Döngü ===
 def run_cycle():
     print(f"\n--- Yeni kontrol başlatıldı: {datetime.utcnow()} UTC ---")
     last_signals = load_last_signals()
 
-    # OKX kontrolü
     df_okx = get_okx_ohlcv("ETH-USDT-SWAP", "6H")
     if df_okx is not None:
-        detect_and_send(df_okx, "OKX ETH-USDT-SWAP", last_signals)
+        detect_and_send_latest(df_okx, "OKX ETH-USDT-SWAP", last_signals)
 
-    # Binance kontrolü
     df_bin = get_binance_ohlcv("ETHUSDT", "6h")
     if df_bin is not None:
-        detect_and_send(df_bin, "BINANCE ETHUSDT_PERP", last_signals)
+        detect_and_send_latest(df_bin, "BINANCE ETHUSDT_PERP", last_signals)
 
     print("--- Kontrol tamamlandı ---")
 
